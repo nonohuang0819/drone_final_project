@@ -11,7 +11,6 @@ from rcl_interfaces.msg import ParameterValue
 
 class TurtleClient(Node): # turtlesimSP: service and parameters
     def __init__(self):
-        # 初始化父類別 Node，並將節點名稱設為 'turtle_service_parameter'
         super().__init__('turtle_service_parameter')
         
         # === 創建服務客戶端 (Service Client) ===

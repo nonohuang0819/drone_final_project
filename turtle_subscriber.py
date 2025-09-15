@@ -17,29 +17,22 @@ class TurtlesimSubscriber(Node):
 
     def listen_cmd_vel_callback(self, msg):
         print("--------------")
-        # 從 msg 物件中獲取並印出線速度 x
         print(f"cmd vel x: {msg.linear.x}")
-        # 從 msg 物件中獲取並印出角速度 z
         print(f"cmd vel y: {msg.angular.z}")
         print("--------------")
         
-    # ### /turtle1/pose 主題的回調函數，當 rclpy.spin(node) 執行時，它會自動被調用
+    
     def listen_pose_callback(self, msg):
         print("--------------")
-        # 從 msg 物件中獲取並印出 x 座標
         print(f"pose x: {msg.x}")
-        # 從 msg 物件中獲取並印出 y 座標
         print(f"pose y: {msg.y}")
-        # 從 msg 物件中獲取並印出姿態角度 theta
         print(f"pose theta: {msg.theta}")
         print("--------------")
-        # 從 msg 物件中獲取並印出線速度
         print(f"pose linear velocity: {msg.linear_velocity}")
-        # 從 msg 物件中獲取並印出角速度
         print(f"pose angular velocity: {msg.angular_velocity}")
         print("--------------")
 
-# ### 主函數
+
 def main(args=None):
     # ### rclpy 函式庫初始化
     rclpy.init(args=args)
