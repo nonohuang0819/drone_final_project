@@ -7,7 +7,7 @@ tello = Tello()
 tello.connect()
 tello.takeoff()
 tello.land()
-tello.get_batttery()
+tello.get_batttery() # pdf 27 有其他函式
 
 # send int
 tello.move_left() 
