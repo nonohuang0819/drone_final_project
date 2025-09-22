@@ -5,6 +5,7 @@ import cv2
 tello = Tello()
 
 tello.connect()
+# tello.takeoff()
 
 # tello.move_forward(20)
 # tello.rotate_counter_clockwise(90)
@@ -29,17 +30,18 @@ tello.takeoff()
     
 time.sleep(2)
 
-side_length = 100
+side_length = 20
 
-    # 執行四次，代表四個角
+# 執行四次，代表四個角
 for i in range(4):
-    tello.move_forward(side_length)
 
     if i % 2 == 0:
+        tello.move_forward(side_length)
         tello.flip_forward()
         print(f"在第 {i+1} 個角，向前翻轉")
     else:
         tello.flip_back()
+        tello.move_back(side_length)
         print(f"在第 {i+1} 個角，向後翻轉")
     time.sleep(1)
 
