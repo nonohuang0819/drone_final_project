@@ -55,7 +55,8 @@ class SimpleTestNode(Node):
         # 2: Move Forward (前進)
         # 3: Move Forward + Rotate (前進並旋轉)
         # 4: Land (降落)
-        self.task_flow = [False, False, False, False, False]
+        # 🌟 control tasks
+        self.task_flow = [False, True, True, True, True]
 
         # --- 發布者 (Publisher) ---
         # (Topic name 'control' 來自簡報中的 create_timer 程式碼片段)
