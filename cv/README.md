@@ -88,3 +88,18 @@ self.upper_red_2 = np.array([180, 255, 255])
 ```
 
 You can use online tools or a simple OpenCV script with trackbars to find the correct HSV values for your target object and lighting conditions.
+
+
+## `test.py` Overview
+
+The `test.py` script provides a pre-flight check for the Tello drone to ensure all systems are functioning correctly. It's a ROS2 node that runs through a sequence of automated tests.
+
+The script performs the following 6 steps:
+1.  **Check Tello Connection & Battery:** Verifies that the drone is connected and the battery level is sufficient (>20%).
+2.  **Test Takeoff:** Commands the drone to take off.
+3.  **Test Hover:** Commands the drone to hover for 3 seconds.
+4.  **Test Forward Movement:** Commands the drone to move forward for 1 second.
+5.  **Test Yaw Rotation:** Commands the drone to rotate (yaw) for 1 second.
+6.  **Test Landing:** Commands the drone to land.
+
+Each of these steps is a self-contained block within the `run_check` function. You can test each function independently by commenting out the other steps' code blocks. This allows for granular testing of specific drone functionalities.

@@ -5,226 +5,156 @@ from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
 import time
 
-# -----------------------------------------------------------------------------
-# 注意：
-# 程式碼片段中顯示了 'self.yaw', 'self.height', 'self.battery', 'self.flight_time'
-# 這些變數需要透過訂閱 Tello 驅動節點的「狀態」主題來更新。
-#
-# 這裡我們假設您使用的 Tello 驅動程式 (如 'tello_ros') 
-# 會發布一個 'tello_msgs/msg/TelloStatus' 類型的訊息到 'status' 主題上。
-#
-# 如果您的驅動程式使用不同的主題或訊息類型（例如，多個獨立的主題
-# 如 /battery, /height, /yaw），您需要修改 'status_callback' 函式
-# 並增加額外的訂閱者 (Subscriber)。
-# -----------------------------------------------------------------------------
-
-# 假設的 TelloStatus 訊息導入。
-# 您需要確保您的 ROS 2 工作區中有 'tello_msgs' 這個套件。
+# --- 假設 Tello 驅動程式的訊息類型 ---
+# 再次提醒：您需要有 'tello_msgs' 套件，
+# 否則請將 'TelloStatus' 替換為您驅動程式實際使用的訊息類型。
 try:
     from tello_msgs.msg import TelloStatus
+    STATUS_MSG_TYPE = TelloStatus
+    BATTERY_FIELD = 'battery_percentage'
 except ImportError:
-    print("--------------------------------------------------")
-    print("錯誤：無法導入 'tello_msgs.msg.TelloStatus'")
-    print("請確認您已經安裝並編譯了 'tello_msgs' 套件。")
-    print("若您的 Tello 驅動程式使用不同訊息，請修改此程式碼。")
-    print("--------------------------------------------------")
-    # 暫時使用一個假的 Class 以便程式能被讀取，但無法執行
-    class TelloStatus:
-        pass
+    print("警告：無法導入 'tello_msgs.msg.TelloStatus'。")
+    print("將嘗試使用 'sensor_msgs.msg.BatteryState'...")
+    try:
+        from sensor_msgs.msg import BatteryState
+        STATUS_MSG_TYPE = BatteryState
+        BATTERY_FIELD = 'percentage'
+    except ImportError:
+        print("錯誤：也找不到 'sensor_msgs.msg.BatteryState'。")
+        print("請檢查您的 Tello 驅動程式並修改此腳本的 STATUS_MSG_TYPE。")
+        exit(1)
+# ---
 
-
-class SimpleTestNode(Node):
+class PreFlightCheckNode(Node):
     def __init__(self):
-        super().__init__('simple_test')
-        self.get_logger().info('RCL Python Tello Test Node 已啟動.')
+        super().__init__('tello_preflight_check')
+        self.get_logger().info("Tello 飛行前檢查節點已啟動...")
 
-        # --- 從簡報中推斷出的屬性 ---
-        self.yaw = 0.0
-        self.height = 0.0
+        # --- Tello 驅動程式的主題名稱 (請根據您的驅動進行修改) ---
+        status_topic = 'status' # 用於讀取電池
+        control_topic = 'control'  # 用於發布 Twist (速度)
+        takeoff_topic = 'takeoff'
+        land_topic = 'land'
+        # ---
+
+        # 狀態變數
         self.battery = 0
-        self.flight_time = 0.0
+        self.battery_check_ok = False
         
-        # 狀態機相關屬性
-        self.task_index = 0
-        self.task_record = -1.0  # 用於記錄任務開始的時間
-        self.init_height = -1.0 # 用於記錄降落前的高度
-
-        # 任務流程 (根據簡報中的 case 0~4)
-        # 0: Takeoff
-        # 1: Ascend (上升)
-        # 2: Move Forward (前進)
-        # 3: Move Forward + Rotate (前進並旋轉)
-        # 4: Land (降落)
-        # 🌟 control tasks
-        self.task_flow = [False, True, True, True, True]
-
-        # --- 發布者 (Publisher) ---
-        # (Topic name 'control' 來自簡報中的 create_timer 程式碼片段)
-        self.takeoff_publisher = self.create_publisher(Empty, 'takeoff', 10)
-        self.land_publisher = self.create_publisher(Empty, 'land', 10)
-        self.control_publisher = self.create_publisher(Twist, 'control', 10)
-
-        # --- 訂閱者 (Subscriber) ---
-        # 訂閱 Tello 狀態
-        self.status_subscriber = self.create_subscription(
-            TelloStatus,
-            'status',
+        # 訂閱者
+        self.status_sub = self.create_subscription(
+            STATUS_MSG_TYPE,
+            status_topic,
             self.status_callback,
             10)
-
-        # --- 計時器 (Timer) ---
-        # (來自簡報中的 create timer 程式碼片段)
-        task_time_period = 1.0  # 任務計時器，每 1.0 秒檢查一次
-        self.task_timer = self.create_timer(task_time_period, self.task_timer_callback)
-
-        # 雖然簡報中顯示了 control_timer，但在 task_timer_callback 邏輯中並未使用
-        # control_timer_period = 0.1
-        # self.control_timer = self.create_timer(control_timer_period, self.control_timer_callback)
-        # def control_timer_callback(self):
-        #    pass # 簡報中未顯示此函式的實作
+            
+        # 發布者
+        self.control_publisher = self.create_publisher(Twist, control_topic, 10)
+        self.takeoff_publisher = self.create_publisher(Empty, takeoff_topic, 10)
+        self.land_publisher = self.create_publisher(Empty, land_topic, 10)
 
     def status_callback(self, msg):
-        """
-        更新 Tello 的狀態。
-        注意：這裡的 'msg.' 屬性 (如 yaw_deg) 是基於 'tello_msgs.msg.TelloStatus' 的猜測。
-        請根據您實際的訊息定義來調整。
-        """
+        """從 Tello 狀態訊息中讀取電池電量"""
         try:
-            self.yaw = msg.yaw_deg
-            self.height = msg.height_m
-            self.battery = msg.battery_percentage
-            self.flight_time = msg.flight_time_sec
-        except Exception as e:
-            if isinstance(msg, TelloStatus): # 避免在 TelloStatus 導入失敗時重複報錯
-                self.get_logger().warn(f"狀態回調錯誤：{e}。您的 TelloStatus 訊息定義可能不同。")
-
-    def task_timer_callback(self):
-        """
-        主要的任務流程狀態機 (State Machine)。
-        此函式完整複製了您簡報中 'task_timer_callback' 內的所有邏輯。
-        """
-        
-        # ### every is to show variable
-        print("-----------------------")
-        print(f"yaw: {self.yaw}")
-        print(f"height: {self.height}")
-        print(f"battery: {self.battery}")
-        print(f"flight_time: {self.flight_time}")
-
-        # 尋找下一個未完成的任務
-        for i in range(len(self.task_flow)):
-            if not self.task_flow[i]:
-                print(f"[{i}, not finish]")
-                self.task_index = i
-                break
-        else:
-            # 如果所有任务都完成了
-            self.get_logger().info('所有任務已完成，停止計時器。')
-            self.task_timer.cancel()
-            return
-
-        # 狀態機
-        msg = Twist()
-
-        # --- Case 0: Takeoff (起飛) ---
-        # (此邏輯基於簡報中 "takeoff" 和 "case 1" 的片段推斷)
-        if self.task_index == 0:
-            self.get_logger().info('Case 0: Takeoff')
-            # 持續發送起飛指令，直到偵測到高度 > 0.1 (公尺)
-            if self.height < 0.1:
-                self.takeoff_publisher.publish(Empty())
+            # 根據 STATUS_MSG_TYPE 讀取正確的欄位
+            if hasattr(msg, BATTERY_FIELD):
+                if STATUS_MSG_TYPE == TelloStatus:
+                    self.battery = msg.battery_percentage
+                else:
+                    self.battery = int(msg.percentage * 100) # BatteryState 是 0.0-1.0
+                
+                if not self.battery_check_ok: # 只顯示一次
+                    self.get_logger().info(f"成功接收到 Tello 狀態：電量 {self.battery}%")
+                    self.battery_check_ok = True
             else:
-                self.get_logger().info('Takeoff complete.')
-                self.task_flow[self.task_index] = True
-                self.task_record = -1.0 # 重置計時器
+                self.get_logger().warn(f"狀態訊息中沒有 '{BATTERY_FIELD}' 欄位。")
+                
+        except Exception as e:
+            self.get_logger().error(f"狀態回調出錯: {e}")
+
+    def run_check(self):
+        """
+        執行一系列的檢查動作
+        """
+        self.get_logger().info("--- [步驟 1/6] 檢查 Tello 連線與電池 ---")
+        
+        # 等待 status_callback 至少成功執行一次
+        wait_cycles = 0
+        while not self.battery_check_ok and rclpy.ok() and wait_cycles < 10:
+            self.get_logger().info("等待 Tello 狀態訊息...")
+            rclpy.spin_once(self, timeout_sec=1.0) # 處理回調
+            wait_cycles += 1
+            
+        if not self.battery_check_ok:
+            self.get_logger().error("檢查失敗：10 秒內未收到 Tello 狀態訊息。")
+            self.get_logger().error("請確認 Tello 驅動節點 ('tello/node.py') 正在運行。")
             return
 
-        # --- Case 1: Ascend (上升) ---
-        # (來自簡報中 case 1 的程式碼片段)
-        if self.task_index == 1:
-            self.get_logger().info('Case 1: Ascend')
-            if self.task_record == -1.0:
-                self.task_record = self.flight_time
-            
-            msg.linear.z = 50.0  # Tello 驅動通常接受 -100 到 100 的值
-            self.control_publisher.publish(msg)
-
-            # 上升 1.0 秒
-            if self.flight_time - self.task_record > 1.0:
-                self.task_flow[self.task_index] = True
-                self.task_record = -1.0
-            return
-
-        # --- Case 2: Move Forward (前進) ---
-        # (來自簡報中 case 2 的模糊程式碼片段)
-        if self.task_index == 2:
-            self.get_logger().info('Case 2: Move Forward')
-            if self.task_record == -1.0:
-                self.task_record = self.flight_time
-            
-            msg.linear.x = 50.0
-            self.control_publisher.publish(msg)
-
-            # 前進 1.0 秒
-            if self.flight_time - self.task_record > 1.0:
-                self.task_flow[self.task_index] = True
-                self.task_record = -1.0
+        if self.battery < 20:
+            self.get_logger().error(f"檢查失敗：電池電量過低 ({self.battery}%)。請充電。")
             return
             
-        # --- Case 3: Move forward + rotate clockwise ---
-        # (來自簡報中 case 3 的程式碼片段)
-        if self.task_index == 3:
-            self.get_logger().info('Case 3: Move forward + rotate clockwise')
-            if self.task_record == -1.0:
-                self.task_record = self.flight_time
-            
-            msg = Twist()
-            msg.linear.x = 30.0
-            msg.angular.z = 30.0
-            self.control_publisher.publish(msg)
+        self.get_logger().info(f"電池電量 {self.battery}%，檢查通過。")
 
-            # 執行 1.0 秒
-            if self.flight_time - self.task_record > 1.0:
-                self.task_flow[self.task_index] = True
-                self.task_record = -1.0
-            return
+        # 建立一個全 0 的 Twist 訊息 (懸停)
+        hover_msg = Twist()
+        
+        # 建立一個測試用的 Twist 訊息
+        # (速度值 30 是基於您 'simple_test.py' 的範例)
+        move_msg = Twist()
 
-        # --- Case 4: Land (降落) ---
-        # (來自簡報中 case 4 的程式碼片段)
-        if self.task_index == 4:
-            self.get_logger().info('Case 4: Land')
-            if self.task_record == -1.0:
-                self.task_record = 1.0 # 設置為 1 進入下一個狀態
-                self.init_height = self.height # 記錄開始降落時的高度
+        try:
+            # --- 測試序列 ---
+            self.get_logger().info("--- [步驟 2/6] 測試：起飛 ---")
+            self.takeoff_publisher.publish(Empty())
+            time.sleep(5) # 等待起飛完成
 
-            if self.task_record == 1.0:
-                self.land_publisher.publish(Empty())
-                # 檢查是否已接近地面 (例如：低於初始高度的 20%)
-                if self.init_height > 0 and self.height < self.init_height * 0.2:
-                    self.get_logger().info('Landing complete.')
-                    self.task_flow[self.task_index] = True
-                    self.task_record = -1.0
-            return
+            self.get_logger().info("--- [步驟 3/6] 測試：懸停 (3 秒) ---")
+            self.control_publisher.publish(hover_msg)
+            time.sleep(3)
 
-        # --- 其他 Cases (5, 6, 7...) ---
-        # 簡報中顯示了 case 5, 6, 7 但沒有實作，這裡省略
-        if self.task_index > 4:
-            self.get_logger().info('All tasks finished.')
-            self.task_timer.cancel()
+            self.get_logger().info("--- [步驟 4/6] 測試：向前 (1 秒) ---")
+            move_msg.linear.x = 30.0 # 向前 (使用 30% 功率)
+            self.control_publisher.publish(move_msg)
+            time.sleep(1)
+            move_msg.linear.x = 0.0 # 停止
 
+            self.get_logger().info("--- [步驟 5/6] 測試：向右旋轉 (1 秒) ---")
+            move_msg.angular.z = 40.0 # 向右旋轉 (使用 40% 功率)
+            self.control_publisher.publish(move_msg)
+            time.sleep(1)
+            move_msg.angular.z = 0.0 # 停止
+
+            self.get_logger().info("--- [步驟 6/6] 測試：降落 ---")
+            # 發布懸停指令，然後降落
+            self.control_publisher.publish(hover_msg)
+            time.sleep(1)
+            self.land_publisher.publish(Empty())
+            time.sleep(3) # 等待降落完成
+
+            self.get_logger().info("=== 飛行前檢查完畢，所有功能正常！ ===")
+
+        except Exception as e:
+            self.get_logger().error(f"測試過程中斷：{e}")
+            self.get_logger().error("將觸發緊急降落。")
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SimpleTestNode()
+    node = PreFlightCheckNode()
+    
     try:
-        rclpy.spin(node)
+        # 執行檢查
+        node.run_check()
+        
     except KeyboardInterrupt:
-        print("節點已關閉。")
+        node.get_logger().warn("測試被使用者中斷！")
     finally:
-        # 在節點關閉前發送最後的降落指令 (安全起見)
-        node.get_logger().info('Sending final land command before shutdown...')
+        # --- 安全降落機制 ---
+        # 無論測試成功、失敗或被中斷，都必須發送降落指令
+        node.get_logger().info("--- [安全機制] 發送最終降落指令 ---")
         node.land_publisher.publish(Empty())
-        time.sleep(1) # 給予指令發送的時間
+        time.sleep(2) # 給指令一點時間發送
+        
         node.destroy_node()
         rclpy.shutdown()
 

@@ -198,7 +198,10 @@ def main(args=None):
     try:
         # 起飛
         node.takeoff()
-        # 保持節點運行，處理回調
+
+        """ main entry
+        a for loop for image_callback + processing frame
+        """
         rclpy.spin(node)
 
     except KeyboardInterrupt:
@@ -206,7 +209,6 @@ def main(args=None):
     finally:
         # 確保降落
         node.land()
-        # 清理
         cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
