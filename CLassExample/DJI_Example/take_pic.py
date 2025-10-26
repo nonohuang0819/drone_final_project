@@ -3,7 +3,7 @@ from djitellopy import Tello
 import time
 
 tello = Tello()
-tello.connect()
+tello.connect(False)
 
 tello.streamon()
 frame_read = tello.get_frame_read()
