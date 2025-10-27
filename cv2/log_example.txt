@@ -1,0 +1,21 @@
+test3.py
+
+
+執行之後，您會在終端機中看到類似以下的日誌輸出：
+
+   1. 初始狀態 (task_index = 0):
+       * 節點一啟動，control_timer_callback 會被定期呼叫。
+       * 日誌會顯示 [State Check] task_index: 0, ...。
+       * 程式會發布 takeoff 指令，並印出 Takeoff sent.。
+       * task_index 保持為 0，直到影像處理回呼 (image_callback) 開始接收影像並更新 cx。
+
+   2. 進入對準階段 (task_index = 1):
+       * 一旦影像處理開始 (cx 不再是 -1)，程式會印出 Takeoff complete, moving to task_index = 1 
+         (Alignment).，並將 task_index 設為 1。
+       * 接下來的日誌會是 [State Check] task_index: 1, ...。
+       * 程式會持續根據 dx 和 dy 的值進行對準，並印出 Aligning... dx: ..., dy: ...。
+
+   3. 對準完成，準備降落 (task_index = 2):
+       * 當影像處理判斷無人機已經對準目標 (can_pass 變為 1)，程式會印出 Aligned! Moving forward. 和
+         Alignment complete. Advancing to task_index = 2 (Land).。
+       * task_index 被設為 `2

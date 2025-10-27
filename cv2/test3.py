@@ -115,7 +115,7 @@ class TelloController(Node):
                 h_img, w_img = frame_bgr.shape[:2]
                 des_cx, des_cy = int(w_img * 0.5), int(h_img * 0.5)
                 dx, dy = br_cx - des_cx, br_cy - des_cy
-                can_pass_val = 1 if (abs(dx) < 24 and abs(dy) < 24) else 0
+                can_pass_val = 1 if (abs(dx) < 24 and abs(dy) < 24) else 0 # for case 1
                 info = Float64MultiArray()
                 info.data = [float(br_cx), float(br_cy), float(can_pass_val)]
                 self.inform_pub.publish(info)
